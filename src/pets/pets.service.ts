@@ -7,6 +7,7 @@ import { Owner } from './interfaces/owner.interface';
 import { getTotalWeight } from './weight.helper';
 import { CreateCatDto } from './dto/create.cat.dto';
 import { CreateDogDto } from './dto/create.dog.dto';
+import { CreateOwnerDto } from './dto/create.owner.dto';
 
 @Injectable()
 export class PetsService {
@@ -17,31 +18,36 @@ export class PetsService {
   ) {}
 
   async addCat(createCatDto: CreateCatDto): Promise<Cat> {
-    var createdCat = new this.catModel(createCatDto);
+    const createdCat = new this.catModel(createCatDto);
     return createdCat.save();
   }
 
   async addDog(createDogDto: CreateDogDto): Promise<Dog> {
-    var createdDog = new this.dogModel(createDogDto);
+    const createdDog = new this.dogModel(createDogDto);
     return createdDog.save();
+  }
+
+  async addOwner(createOwnerDto: CreateOwnerDto): Promise<Owner> {
+    const createdOwner = new this.dogModel(createOwnerDto);
+    return createdOwner.save();
   }
 
   async findAll<T = Cat | Dog>(petType?: 'cat' | 'dog'): Promise<T[]> {
     switch (petType) {
       case 'cat':
-        return this.catModel.find().exec();
+        return this.catModel.find();
       case 'dog':
-        return this.dogModel.find().exec();
+        return this.dogModel.find();
       default:
         return [
-          ...(await this.catModel.find().exec()),
-          ...(await this.catModel.find().exec()),
+          ...(await this.catModel.find()),
+          ...(await this.dogModel.find()),
         ];
     }
   }
 
   async findCatById(catId: string): Promise<Cat> {
-    var cat = await this.catModel.findById(catId);
+    const cat = await this.catModel.findById(catId);
     if (!cat) {
       throw new HttpException(
         'Cat with given id can not be found',
@@ -53,7 +59,7 @@ export class PetsService {
   }
 
   async findDogById(catId: string): Promise<Dog> {
-    var dog = await this.dogModel.findById(catId);
+    const dog = await this.dogModel.findById(catId);
     if (!dog) {
       throw new HttpException(
         'Dog with given id can not be found',
@@ -65,33 +71,23 @@ export class PetsService {
   }
 
   async getCatsWeight(): Promise<number> {
-    var cats = await this.catModel.find({}, { weight: 1 }).exec();
+    const cats = await this.catModel.find({}, { weight: 1 }).exec();
+    // maybe this logic could be handled using some aggregation? don't have time to think through that
     return getTotalWeight(cats);
   }
 
   async getDogsWeight(): Promise<number> {
-    var dogs = await this.dogModel.find({}, { weight: 1 }).exec();
+    const dogs = await this.dogModel.find({}, { weight: 1 }).exec();
     return getTotalWeight(dogs);
   }
 
   async getHappyDogs(): Promise<string[]> {
-    var dogs = await this.dogModel.find({}, { name: 1 }).exec();
-    var happyDogs = [];
-    for (const dog of dogs) {
-      // Check if dog is wagging its tail
-      const isWagging = ((await this.dogModel
-        .findOne({ _id: dog._id }, { wagsTail: 1 })
-        .exec()) as Dog).wagsTail;
-      if (isWagging) {
-        happyDogs.push(dog.name);
-      }
-    }
-
-    return happyDogs;
+    return ( await this.dogModel.find({wagsTail: true}, {name: 1}) ).map(i => i.name)
+    // return this.dogModel.find({wagsTail: true}).distinct('name'); // this is more clean approach, but duplicate names will be deleted
   }
 
   async getTopThreePetOwnersAtAge(ownerAge: number): Promise<any> {
-    var owners = await this.ownerModel.aggregate([
+    const owners = await this.ownerModel.aggregate([ // don't have time to closely review this query...
       {
         $group: {
           _id: {
@@ -137,6 +133,7 @@ export class PetsService {
       },
     ]);
 
+    // this logic should be handled in some way in the aggregation but I don't have already time to think through how to do that properly
     let result = [];
     for (const owner of owners) {
       result.push({

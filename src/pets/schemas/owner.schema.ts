@@ -12,7 +12,7 @@ export const OwnerSchema = new mongoose.Schema({
   dogs: [
     {
       type: mongoose.Schema.ObjectId,
-      ref: 'Cat',
+      ref: 'Dog',
     },
   ],
 });

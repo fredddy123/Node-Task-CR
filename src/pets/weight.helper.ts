@@ -1,12 +1,5 @@
-import { Dog } from './interfaces/dog.interface';
-import { Cat } from './interfaces/cat.interface';
+import { Pet } from './interfaces/pet.interface';
 
-let totalWeight = 0;
-
-export function getTotalWeight(pets: Dog[] | Cat[]): number {
-  for (const { weight } of pets) {
-    totalWeight += weight;
-  }
-
-  return totalWeight;
+export function getTotalWeight(pets: Pet[]) {
+  return pets.reduce((total, { weight }) => total + weight, 0)
 }
