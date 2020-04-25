@@ -12,7 +12,7 @@ The API uses Nest API framework and a documentation can be found here https://do
 
 ## Running the app
 
-You can application locally using Docker Compose
+You can run the application locally using Docker Compose
 
 ```bash
 docker-compose up

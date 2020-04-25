@@ -1,10 +1,18 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { PetsService } from './pets.service';
 import { Cat } from './interfaces/cat.interface';
 import { Dog } from './interfaces/dog.interface';
 import { CreateCatDto } from './dto/create.cat.dto';
 import { CreateDogDto } from './dto/create.dog.dto';
 import { CreateOwnerDto } from './dto/create.owner.dto';
+import { TopPetOwnersItem } from './interfaces/top_pet_owners_item.interface';
+import { HappyDog } from './interfaces/happy_dog.interface';
+import { ListPetsResponse } from './dto/list.pets.response';
+
+interface FindPetsQuery {
+  limit: number;
+  page: number;
+}
 
 @Controller('pets')
 export class PetsController {
@@ -26,18 +34,35 @@ export class PetsController {
   }
 
   @Get()
-  findAll(): Promise<Array<Cat | Dog>> {
-    return this.petsService.findAll();
+  findAll(@Query() query: FindPetsQuery): Promise<ListPetsResponse> {
+    return this.petsService.findAll({
+      pagination: {
+        limit: +query.limit,
+        page: +query.page,
+      }
+    });
   }
 
   @Get('/cats')
-  findCats(): Promise<Cat[]> {
-    return this.petsService.findAll<Cat>('cat');
+  findCats(@Query() query: FindPetsQuery): Promise<ListPetsResponse> {
+    return this.petsService.findAll({
+      petType: 'cat',
+      pagination: {
+        limit: +query.limit,
+        page: +query.page,
+      }
+    });
   }
 
   @Get('/dogs')
-  findDogs(): Promise<Dog[]> {
-    return this.petsService.findAll<Dog>('dog');
+  findDogs(@Query() query: FindPetsQuery): Promise<ListPetsResponse> {
+    return this.petsService.findAll({
+      petType: 'dog',
+      pagination: {
+        limit: +query.limit,
+        page: +query.page,
+      }
+    });
   }
 
   @Get('/cats/:id')
@@ -61,12 +86,12 @@ export class PetsController {
   }
 
   @Get('/happy-dogs')
-  getHappyDogs(): Promise<string[]> {
+  getHappyDogs(): Promise<HappyDog[]> {
     return this.petsService.getHappyDogs();
   }
 
   @Get('/top-owners/:age')
-  getPetOwners(@Param('id') age: number): Promise<string[]> {
+  getPetOwners(@Param('age', new ParseIntPipe()) age: number): Promise<TopPetOwnersItem[]> {
     return this.petsService.getTopThreePetOwnersAtAge(age);
   }
 }

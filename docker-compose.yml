@@ -15,7 +15,7 @@ services:
     image: node:12
     ports:
       - 9229:9229
-      - 3000:3000
+      - 3001:3001
     volumes:
       - .:/app
       - npm-cache:/root/.npm

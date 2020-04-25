@@ -1,19 +1,69 @@
-import { Model } from 'mongoose';
+import { Model, PaginateModel } from 'mongoose';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Cat } from './interfaces/cat.interface';
 import { Dog } from './interfaces/dog.interface';
 import { Owner } from './interfaces/owner.interface';
-import { getTotalWeight } from './weight.helper';
 import { CreateCatDto } from './dto/create.cat.dto';
 import { CreateDogDto } from './dto/create.dog.dto';
 import { CreateOwnerDto } from './dto/create.owner.dto';
+import { TopPetOwnersItem } from './interfaces/top_pet_owners_item.interface';
+import { HappyDog } from './interfaces/happy_dog.interface';
+import { ListPetsResponse } from './dto/list.pets.response';
+
+function formatFindAllResponse(data) {
+  return {
+    docs: data.docs.map(doc => ({
+      _id: doc._id,
+      name: doc.name,
+      age: doc.age,
+      breed: doc.breed,
+      weight: doc.weight,
+      ...('hasClippedClaws' in doc ? { hasClippedClaws: doc.hasClippedClaws } : {}),
+      ...('wagsTail' in doc ? { wagsTail: doc.wagsTail } : {}),
+    })),
+    totalDocs: data.totalDocs,
+    limit: data.limit,
+    totalPages: data.totalPages,
+    page: data.page,
+    pagingCounter: data.pagingCounter,
+    hasPrevPage: data.hasPrevPage,
+    hasNextPage: data.hasNextPage,
+    prevPage: data.prevPage,
+    nextPage: data.nextPage,
+  };
+}
+
+async function fetchPetsTotalWeight(dbService) {
+  const [{ totalWeight }] = await dbService.aggregate([
+    {
+      $group: {
+        _id: null,
+        totalWeight: {
+          $sum: "$weight"
+        }
+      }
+    }
+  ]);
+
+  return totalWeight;
+}
+
+interface PaginationInterface {
+  limit: number;
+  page: number;
+}
+
+interface FindAllArgsInterface {
+  petType?: 'cat' | 'dog';
+  pagination?: PaginationInterface;
+}
 
 @Injectable()
 export class PetsService {
   constructor(
-    @InjectModel('Cat') private readonly catModel: Model<Cat>,
-    @InjectModel('Dog') private readonly dogModel: Model<Dog>,
+    @InjectModel('Cat') private readonly catModel: PaginateModel<Cat>,
+    @InjectModel('Dog') private readonly dogModel: PaginateModel<Dog>,
     @InjectModel('Owner') private readonly ownerModel: Model<Owner>,
   ) {}
 
@@ -28,21 +78,54 @@ export class PetsService {
   }
 
   async addOwner(createOwnerDto: CreateOwnerDto): Promise<Owner> {
-    const createdOwner = new this.dogModel(createOwnerDto);
+    const createdOwner = new this.ownerModel(createOwnerDto);
     return createdOwner.save();
   }
 
-  async findAll<T = Cat | Dog>(petType?: 'cat' | 'dog'): Promise<T[]> {
+  async findAll({ petType, pagination: { limit, page } }: FindAllArgsInterface): Promise<ListPetsResponse> {
     switch (petType) {
       case 'cat':
-        return this.catModel.find();
+        return formatFindAllResponse(await this.catModel.paginate({}, { limit, page }));
       case 'dog':
-        return this.dogModel.find();
-      default:
-        return [
-          ...(await this.catModel.find()),
-          ...(await this.dogModel.find()),
-        ];
+          return formatFindAllResponse(await this.dogModel.paginate({}, { limit, page }));
+      default: {
+        const cats = await this.catModel.paginate({}, { limit, page });
+        if (cats.docs.length === limit) {
+          return formatFindAllResponse(cats);
+        }
+
+        const dogsLimit = limit - cats.docs.length;
+
+        const globalOffset = (page - 1) * limit;
+        const dogsOffset = globalOffset - cats.totalDocs < 0 ? 0 : globalOffset - cats.totalDocs;
+
+        const dogs = await this.dogModel.paginate({}, { limit: dogsLimit, offset: dogsOffset });
+
+        const totalPages = Math.ceil((cats.totalDocs + dogs.totalDocs) / 3);
+        const hasPrevPage = page - 1 > 0;
+        const hasNextPage = page + 1 <= totalPages;
+
+        return formatFindAllResponse({
+          docs: [...cats.docs, ...dogs.docs].map(doc => ({
+            _id: doc._id,
+            name: doc.name,
+            age: doc.age,
+            breed: doc.breed,
+            weight: doc.weight,
+            ...('hasClippedClaws' in doc ? { hasClippedClaws: doc.hasClippedClaws } : {}),
+            ...('wagsTail' in doc ? { wagsTail: doc.wagsTail } : {}),
+          })),
+          totalDocs: cats.totalDocs + dogs.totalDocs,
+          limit: limit,
+          totalPages: totalPages,
+          page: page,
+          pagingCounter: (page - 1) * limit + 1,
+          hasPrevPage: hasPrevPage,
+          hasNextPage: hasNextPage,
+          prevPage: hasPrevPage ? page - 1 : null,
+          nextPage: hasNextPage ? page + 1 : null,
+        });
+      }
     }
   }
 
@@ -51,7 +134,7 @@ export class PetsService {
     if (!cat) {
       throw new HttpException(
         'Cat with given id can not be found',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        HttpStatus.NOT_FOUND,
       );
     }
 
@@ -63,7 +146,7 @@ export class PetsService {
     if (!dog) {
       throw new HttpException(
         'Dog with given id can not be found',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        HttpStatus.NOT_FOUND,
       );
     }
 
@@ -71,77 +154,77 @@ export class PetsService {
   }
 
   async getCatsWeight(): Promise<number> {
-    const cats = await this.catModel.find({}, { weight: 1 }).exec();
-    // maybe this logic could be handled using some aggregation? don't have time to think through that
-    return getTotalWeight(cats);
+    return fetchPetsTotalWeight(this.catModel);
   }
 
   async getDogsWeight(): Promise<number> {
-    const dogs = await this.dogModel.find({}, { weight: 1 }).exec();
-    return getTotalWeight(dogs);
+    return fetchPetsTotalWeight(this.dogModel);
   }
 
-  async getHappyDogs(): Promise<string[]> {
-    return ( await this.dogModel.find({wagsTail: true}, {name: 1}) ).map(i => i.name)
-    // return this.dogModel.find({wagsTail: true}).distinct('name'); // this is more clean approach, but duplicate names will be deleted
+  async getHappyDogs(): Promise<HappyDog[]> {
+    // since dog.name is not unique field, I've made such query
+    // which will produce array of such objects { _id: {unique value}, name: {not unique value} }
+    return this.dogModel.aggregate([
+      { $match: { wagsTail: true } },
+      { $project: { "name": 1 } }
+    ]);
   }
 
-  async getTopThreePetOwnersAtAge(ownerAge: number): Promise<any> {
-    const owners = await this.ownerModel.aggregate([ // don't have time to closely review this query...
+  async getTopThreePetOwnersAtAge(ownerAge: number): Promise<TopPetOwnersItem[]> {
+    return this.ownerModel.aggregate([
+      { $match: { age: ownerAge } },
+      {
+        $project: {
+          totalPetsOfOwner: { $sum: [ { $size: '$cats' }, { $size: '$dogs' } ] },
+          cats: "$cats",
+          dogs: "$dogs"
+       }
+      },
+      { $sort: { totalPetsOfOwner: -1 } },
+      { $limit: 3 },
       {
         $group: {
           _id: {
-            $sum: [{ $size: '$cats' }, { $size: '$dogs' }],
+            $sum: [ { $size: '$cats' }, { $size: '$dogs' } ]
           },
-          ids: { $addToSet: '$_id' },
-        },
+          owners_ids: { $addToSet: '$_id' }
+        }
       },
-      { $sort: { _id: -1 } },
       {
         $lookup: {
           from: 'owners',
-          let: { ownerIds: '$ids' },
+          let: { ownerIds: '$owners_ids' },
           pipeline: [
-            { $match: { $expr: { $in: ['$_id', '$$ownerIds'] } } },
+            {
+              $match: { $expr: { $in: [ '$_id', '$$ownerIds' ] } }
+            },
             {
               $lookup: {
                 from: 'cats',
-                let: { catIds: '$cats' },
-                pipeline: [
-                  {
-                    $match: { $expr: { $in: ['$_id', '$$catIds'] } },
-                  },
-                ],
-                as: 'cats',
-              },
+                localField: 'cats',
+                foreignField: '_id',
+                as: 'cats'
+              }
             },
             {
               $lookup: {
                 from: 'dogs',
-                let: { dogIds: '$dogs' },
-                pipeline: [
-                  {
-                    $match: { $expr: { $in: ['$_id', '$$dogIds'] } },
-                  },
-                ],
-                as: 'dogs',
-              },
-            },
+                localField: 'dogs',
+                foreignField: '_id',
+                as: 'dogs'
+              }
+            }
           ],
-          as: 'owners',
-        },
+          as: 'owners'
+        }
       },
+      {
+        $addFields: { petsCount: '$_id' }
+      },
+      { $sort: { petsCount: -1 } },
+      {
+        $project: { _id: 0, owners_ids: 0 }
+      }
     ]);
-
-    // this logic should be handled in some way in the aggregation but I don't have already time to think through how to do that properly
-    let result = [];
-    for (const owner of owners) {
-      result.push({
-        petsCount: owner._id,
-        owners: owner.owners.filter(owner => owner.age == ownerAge),
-      });
-    }
-
-    return result.slice(0, 3);
   }
 }

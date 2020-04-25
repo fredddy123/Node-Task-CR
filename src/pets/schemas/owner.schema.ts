@@ -5,14 +5,14 @@ export const OwnerSchema = new mongoose.Schema({
   age: Number,
   cats: [
     {
-      type: mongoose.Schema.ObjectId,
+      type: mongoose.Schema.Types.ObjectId,
       ref: 'Cat',
     },
   ],
   dogs: [
     {
-      type: mongoose.Schema.ObjectId,
+      type: mongoose.Schema.Types.ObjectId,
       ref: 'Dog',
     },
   ],
-});
+}, { versionKey: false });
